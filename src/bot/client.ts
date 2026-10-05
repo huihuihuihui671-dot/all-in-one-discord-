@@ -1,21 +1,17 @@
-import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
-import { config } from 'dotenv';
+import {
+    Client,
+    Events,
+    GatewayIntentBits,
+    REST,
+    Routes,
+    SlashCommandBuilder,
+    GuildMember
+} from 'discord.js';
+import { env } from '../config/env';
+import { BotConfig } from '../config/bot';
+import { Logger } from '../services/logger.service';
+import { getMemberHighestTier, canModerateTarget } from '../security/permissions';
 
-// 1. Load the hidden .env file that contains our secret passwords
-config();
-
-// 2. Grab our secrets from the environment
-const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const GUILD_ID = process.env.DISCORD_GUILD_ID;
-
-// 3. Safety check: Stop the bot if we forgot to set our passwords
-if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-    console.error("❌ CRITICAL ERROR: Missing environment variables! Please check your .env file.");
-    process.exit(1);
-}
-
-// 4. Create the bot client. "Intents" tell Discord what information we want to see.
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -24,43 +20,94 @@ const client = new Client({
     ]
 });
 
-// 5. This runs exactly ONE time when the bot successfully logs in
-client.once('ready', async () => {
-    console.log(`✅ Logged in successfully as ${client.user?.tag}!`);
+// 1. Define command structures for registration
+const commands = [
+    new SlashCommandBuilder()
+        .setName('ping')
+        .setDescription('Replies with Pong and shows bot latency!'),
 
-    // Let's create the /ping command on Discord
-    const rest = new REST({ version: '10' }).setToken(TOKEN);
+    new SlashCommandBuilder()
+        .setName('checkperm')
+        .setDescription('Checks the staff hierarchy tier and permissions of a member.')
+        .addUserOption((option) =>
+            option
+                .setName('target')
+                .setDescription('The user to evaluate (leave empty to check yourself)')
+                .setRequired(false)
+        )
+].map((command) => command.toJSON());
+
+// 2. ClientReady event replaces deprecated "ready" event
+client.once(Events.ClientReady, async () => {
+    Logger.info(`Logged in successfully as ${client.user?.tag}!`);
+    Logger.info(`Loaded primary color: ${BotConfig.colors.primary}`);
+
+    const rest = new REST({ version: '10' }).setToken(env.DISCORD_TOKEN);
     try {
-        console.log('⏳ Registering /ping command...');
+        Logger.info('Registering slash commands (/ping, /checkperm)...');
         await rest.put(
-            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-            { 
-                body: [{ 
-                    name: 'ping', 
-                    description: 'Replies with Pong and shows bot latency!' 
-                }] 
-            }
+            Routes.applicationGuildCommands(env.DISCORD_CLIENT_ID, env.DISCORD_GUILD_ID),
+            { body: commands }
         );
-        console.log('✅ Command registered successfully!');
+        Logger.info('Commands registered successfully!');
     } catch (error) {
-        console.error('❌ Failed to register command:', error);
+        Logger.error('Failed to register commands:', error);
     }
 });
 
-// 6. This runs EVERY time someone uses a slash command
-client.on('interactionCreate', async (interaction) => {
-    // If it's not a slash command, ignore it
+// 3. Command interaction router
+client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
 
-    // Check if the command used was /ping
-    if (interaction.commandName === 'ping') {
-        // Calculate how long it took to receive the message
+    const { commandName } = interaction;
+
+    if (commandName === 'ping') {
         const latency = Date.now() - interaction.createdTimestamp;
-        
-        // Reply to the user
+        Logger.info(`${interaction.user.tag} used /ping in${interaction.guild?.name}`);
         await interaction.reply(`🏓 Pong!\nLatency: \`${latency}ms\``);
+        return;
+    }
+
+    if (commandName === 'checkperm') {
+        if (!interaction.guild || !(interaction.member instanceof GuildMember)) {
+            await interaction.reply({
+                content: 'This command can only be executed inside a server.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const targetUser = interaction.options.getUser('target');
+        const targetMember = targetUser
+            ? await interaction.guild.members.fetch(targetUser.id).catch(() => null)
+            : interaction.member;
+
+        if (!targetMember) {
+            await interaction.reply({
+                content: 'Unable to locate the specified member in this server.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        const evaluation = getMemberHighestTier(targetMember);
+        const hierarchyComparison = canModerateTarget(interaction.member, targetMember);
+
+        let response = `🛡️ **Permission Analysis for ${targetMember.user.tag}**:\n`;
+        response += `• **Assigned Tier**: Level \`${evaluation.tier}\` (${evaluation.tierName})\n`;
+        response += `• **Server Owner**: ${targetMember.id === interaction.guild.ownerId ? 'Yes' : 'No'}\n`;
+        response += `• **Administrator Right**: ${targetMember.permissions.has('Administrator') ? 'Yes' : 'No'}\n\n`;
+
+        if (interaction.member.id !== targetMember.id) {
+            response += `⚖️ **Moderation Hierarchy Check**:\n`;
+            response += hierarchyComparison.allowed
+                ? `✅ You have sufficient authority to moderate this user.`
+                : `❌ You cannot moderate this user: *${hierarchyComparison.reason}*`;
+        }
+
+        Logger.security(`${interaction.user.tag} executed /checkperm on ${targetMember.user.tag}`);
+        await interaction.reply({ content: response, ephemeral: true });
     }
 });
 
-// 7. Finally, log in using our secret token
-client.login(TOKEN);
+client.login(env.DISCORD_TOKEN);
