@@ -1,0 +1,19 @@
+# Dependency directories
+node_modules/
+
+# Environment variables (SECRETS - NEVER UPLOAD)
+.env
+.env.local
+.env.production
+
+# Build outputs
+dist/
+build/
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

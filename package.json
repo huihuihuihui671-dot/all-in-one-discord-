@@ -1,0 +1,21 @@
+{
+  "name": "esports-discord-bot",
+  "version": "1.0.0",
+  "description": "A professional, modular Discord bot for an Esports organization.",
+  "main": "src/bot/client.ts",
+  "scripts": {
+    "dev": "tsx watch src/bot/client.ts",
+    "build": "tsc",
+    "start": "node dist/bot/client.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
