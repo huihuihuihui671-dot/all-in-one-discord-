@@ -1,0 +1,28 @@
+// 1. Tell Prisma to generate TypeScript code for us
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 2. Tell Prisma we are using PostgreSQL and where to find the password
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 3. The Server (Guild) Table
+// This stores settings specific to a Discord server.
+model Guild {
+  id               String   @id // The Discord Server ID
+  welcomeChannelId String?      // The ? means this is optional
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// 4. The User Table
+// This stores global information about a person across all servers.
+model User {
+  id          String   @id // The Discord User ID
+  blacklisted Boolean  @default(false) // Security: Global bot ban list
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
